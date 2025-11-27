@@ -5,13 +5,25 @@
 #include <stdio.h>
 #include <string.h>
 
+static prime_count_func current_prime_count = NULL;
 static area_func current_area = NULL;
 static void* current_lib = NULL;
 
-static float stub(float a, float b) {
+// Текущая загруженная библиотека (0 = naive, 1 = opt)
+static int current_impl = 0;
+static const char* lib_paths[] = {"./libnaive.so", "./libopt.so"};
+
+static int prime_stub(int a, int b) {
     (void)a;
     (void)b;
-    fprintf(stderr, "Ошибка: библиотека не загружена!\n");
+    fprintf(stderr, "Ошибка: функция prime_count не загружена!\n");
+    return 0;
+}
+
+static float area_stub(float a, float b) {
+    (void)a;
+    (void)b;
+    fprintf(stderr, "Ошибка: функция area не загружена!\n");
     return 0.0f;
 }
 
@@ -24,47 +36,67 @@ int load_lib(const char* path) {
     current_lib = dlopen(path, RTLD_LAZY);
     if (!current_lib) {
         fprintf(stderr, "Не удалось загрузить %s: %s\n", path, dlerror());
-        current_area = stub;
+        current_prime_count = prime_stub;
+        current_area = area_stub;
         return 0;
     }
 
     // Сброс ошибок
     dlerror();
 
-    current_area = (area_func)dlsym(current_lib, "area");
+    // Загрузка prime_count
+    current_prime_count = (prime_count_func)dlsym(current_lib, "prime_count");
     char* err = dlerror();
     if (err) {
+        fprintf(stderr, "Символ 'prime_count' не найден: %s\n", err);
+        current_prime_count = prime_stub;
+    }
+
+    // Загрузка area
+    current_area = (area_func)dlsym(current_lib, "area");
+    err = dlerror();
+    if (err) {
         fprintf(stderr, "Символ 'area' не найден: %s\n", err);
-        dlclose(current_lib);
-        current_lib = NULL;
-        current_area = stub;
-        return 0;
+        current_area = area_stub;
     }
 
     printf("Успешно загружена библиотека: %s\n", path);
-    current_area = (area_func)dlsym(current_lib, "area"); // уже проверено выше
     return 1;
 }
 
+void switch_implementation() {
+    current_impl = 1 - current_impl; // Переключение 0/1
+    printf("Переключение на реализацию %d (%s)\n", current_impl + 1,
+           current_impl == 0 ? "наивная" : "оптимизированная");
+    load_lib(lib_paths[current_impl]);
+}
+
 int main(int argc, char** argv) {
-    printf("Реализация 2 Динамическая загрузка (runtime)\n");
+    printf("Программа 2: Динамическая загрузка (runtime)\n");
+    printf("Команды:\n");
+    printf("  0          - переключить реализацию\n");
+    printf("  1 <a> <b>  - подсчет простых чисел на отрезке [a, b]\n");
+    printf("  2 <a> <b>  - вычисление площади (a, b - стороны)\n\n");
 
-    current_area = stub;
+    current_prime_count = prime_stub;
+    current_area = area_stub;
 
+    // Первая библиотека по дефолту
     if (argc > 1) {
         load_lib(argv[1]);
     } else {
-        printf("Для запуска без пути к библиотеке используйте опцию 1\n");
+        load_lib(lib_paths[0]);
     }
 
     char input[512];
-    int cmd;
-    float a, b;
+    int cmd, ia, ib;
+    float fa, fb;
 
     while (1) {
-        printf("\n> ");
+        printf("> ");
         if (!fgets(input, sizeof(input), stdin))
             break;
+
         input[strcspn(input, "\n")] = 0;
 
         if (sscanf(input, "%d", &cmd) != 1) {
@@ -73,32 +105,31 @@ int main(int argc, char** argv) {
         }
 
         if (cmd == 0) {
-            printf("Выход.\n");
-            break;
+            // Переключение реализации
+            switch_implementation();
         } else if (cmd == 1) {
-            char* p = input;
-            while (*p && !isspace(*p))
-                p++;
-            while (*p && isspace(*p))
-                p++;
-            if (!*p) {
-                printf("Укажите путь к .so\n");
+            // Подсчет простых чисел
+            if (sscanf(input, "%d %d %d", &cmd, &ia, &ib) != 3) {
+                printf("Формат: 1 <a> <b>\n");
                 continue;
             }
-            load_lib(p);
+            int result = current_prime_count(ia, ib);
+            printf("Количество простых чисел на [%d, %d]: %d\n", ia, ib, result);
         } else if (cmd == 2) {
-            if (sscanf(input, "%d %f %f", &cmd, &a, &b) != 3 || a <= 0 || b <= 0) {
-                printf("Формат: 2 <a> <b>  (a,b > 0)\n");
+            // Вычисление площади
+            if (sscanf(input, "%d %f %f", &cmd, &fa, &fb) != 3 || fa <= 0 || fb <= 0) {
+                printf("Формат: 2 <a> <b> (a, b > 0)\n");
                 continue;
             }
-            float res = current_area(a, b);
-            printf("Площадь = %.4f\n", res);
+            float result = current_area(fa, fb);
+            printf("Площадь: %.4f\n", result);
         } else {
-            printf("Команды: 1 <путь>      2 <a> <b>      0\n");
+            printf("Неизвестная команда\n");
         }
     }
 
     if (current_lib)
         dlclose(current_lib);
+
     return 0;
 }

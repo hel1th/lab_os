@@ -1,14 +1,10 @@
 #ifndef CONTRACT_H
 #define CONTRACT_H
 
+// контракт на подсчёт простых чисел
+typedef int (*prime_count_func)(int a, int b);
+
+// контракт на площадь
 typedef float (*area_func)(float a, float b);
-
-#ifdef __GNUC__
-    #define EXPORT __attribute__((visibility("default")))
-#else
-    #define EXPORT
-#endif
-
-float area(float a, float b);
 
 #endif
